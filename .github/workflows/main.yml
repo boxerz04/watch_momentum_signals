@@ -1,0 +1,20 @@
+name: Run watch_momentum_signals
+
+on:
+  schedule:
+    # JST 15:15 は UTC 06:15
+    - cron: "15 6 * * 1-5"
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run script
+        run: python watch_momentum_signals.py
