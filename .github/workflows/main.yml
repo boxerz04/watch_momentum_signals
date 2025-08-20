@@ -4,11 +4,12 @@ on:
   schedule:
     # JST 15:15 = UTC 06:15
     - cron: "15 6 * * 1-5"
-  workflow_dispatch:  # ← 手動実行ボタンを有効にする
+  workflow_dispatch:
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -22,6 +23,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # ▼ ここから追加 ▼
+      - name: Restore notified_state.json (cache)
+        uses: actions/cache@v3
+        with:
+          path: notified_state.json
+          key: notified-${{ github.run_id }}        # 毎回ユニーク → 実行後に最新として保存
+          restore-keys: |
+            notified-                               # これに“先頭一致”する最新が復元される
+
+      - name: Ensure state file exists
+        run: |
+          test -f notified_state.json || echo '{}' > notified_state.json
+      # ▲ ここまで追加 ▲
 
       - name: Run script
         env:
