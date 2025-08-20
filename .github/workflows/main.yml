@@ -4,7 +4,6 @@ on:
   schedule:
     # JST 15:15 = UTC 06:15（平日）
     - cron: "15 6 * * 1-5"
-    - cron: "*/5 * * * *"   # 5分おきに実行（あとで削除）
   workflow_dispatch: {}  # 手動実行ボタン
 
 permissions:
