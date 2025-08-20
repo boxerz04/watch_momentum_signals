@@ -140,20 +140,27 @@ def _update_last_hit(symbol: str, trade_date):
 
 def build_first_seen_tag(symbol: str, hit_trade_date) -> str:
     """
-    直近 FIRST_SEEN_BD 営業日以上あけば「🆕初回(前回: YYYY-MM-DD、経過: N営業日)」
-    前回記録が無い場合は「🆕初回(初記録)」
+    直近 FIRST_SEEN_BD 営業日以内にヒットがなければ初回タグ。
+    さらに「同一取引日での再実行」でも初回タグを出す（テスト用配慮）。
     """
     tag = ""
     prev = _get_prev_hit_date(symbol)
+
     if prev is None:
         tag = "🆕初回(初記録)"
     else:
-        try:
-            gap_bd = int(np.busday_count(prev, hit_trade_date))
-        except Exception:
-            gap_bd = None
-        if gap_bd is not None and gap_bd >= FIRST_SEEN_BD:
-            tag = f"🆕初回(前回: {prev.isoformat()}、経過: {gap_bd}営業日)"
+        # ★ 同一取引日なら何度でも「初回」表示（ただし保存は当日で更新）
+        if prev == hit_trade_date:
+            tag = f"🆕初回(前回: {prev.isoformat()}、経過: 0営業日)"
+        else:
+            try:
+                gap_bd = int(np.busday_count(prev, hit_trade_date))
+            except Exception:
+                gap_bd = None
+            if gap_bd is not None and gap_bd >= FIRST_SEEN_BD:
+                tag = f"🆕初回(前回: {prev.isoformat()}、経過: {gap_bd}営業日)"
+
+    # 保存は常に「今回の取引日」で更新（翌日以降の正しい判定のため）
     _update_last_hit(symbol, hit_trade_date)
     return tag
 
