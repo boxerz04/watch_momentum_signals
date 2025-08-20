@@ -2,13 +2,28 @@ name: Run watch_momentum_signals
 
 on:
   schedule:
-    # JST 15:15 = UTC 06:15
+    # JST 15:15 = UTC 06:15（平日）
     - cron: "15 6 * * 1-5"
-  workflow_dispatch:
+  workflow_dispatch: {}  # 手動実行ボタン
+
+permissions:
+  contents: read
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
+
+    # ← .env の値をここに移植（Secretは含めない）
+    env:
+      TZ: "Asia/Tokyo"
+      VOLUME_MULT: "1.5"
+      VOL_QUANTILE: "0.80"
+      MIN_TURNOVER_JPY: "0"
+      VOL_COND_MODE: "OR"
+      FIRST_SEEN_BD: "2" # コメントはダメなので説明はここにだけ書く
+
+      # Secret（Slack）は repository secrets に登録済みのものを注入
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     steps:
       - name: Checkout repository
@@ -24,22 +39,28 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # ▼ ここから追加 ▼
-      - name: Restore notified_state.json (cache)
-        uses: actions/cache@v3
+      # --- notified_state.json を復元（前回の結果を引き継ぐ）---
+      - name: Restore notified_state.json cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: notified_state.json
-          key: notified-${{ github.run_id }}        # 毎回ユニーク → 実行後に最新として保存
+          key: notified_state-${{ github.run_id }}
           restore-keys: |
-            notified-                               # これに“先頭一致”する最新が復元される
+            notified_state-
 
-      - name: Ensure state file exists
+      - name: Touch state if missing
         run: |
-          test -f notified_state.json || echo '{}' > notified_state.json
-      # ▲ ここまで追加 ▲
+          [ -f notified_state.json ] || echo '{}' > notified_state.json
 
       - name: Run script
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           python watch_momentum_signals.py
+
+      # --- 実行後の notified_state.json を保存（次回に引き継ぐ）---
+      - name: Save notified_state.json cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: notified_state.json
+          key: notified_state-${{ github.run_id }}
