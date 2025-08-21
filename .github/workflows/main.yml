@@ -2,45 +2,77 @@ name: Run watch_momentum_signals
 
 on:
   schedule:
-    # JST 15:15 = UTC 06:15（平日）
-    - cron: "15 6 * * 1-5"
-  workflow_dispatch: {}  # 手動実行ボタン
+    # JST -> UTC は -9時間
+    - cron: "5 6 * * 1-5"    # JST 15:05
+    - cron: "10 6 * * 1-5"   # JST 15:10
+    - cron: "15 6 * * 1-5"   # JST 15:15（本命）
+    - cron: "20 6 * * 1-5"   # JST 15:20（予備）
+  workflow_dispatch: {}
 
 permissions:
   contents: read
+
+# 同時実行の競合を避ける（後から来た発火を優先）
+concurrency:
+  group: watch-momentum-signals
+  cancel-in-progress: true
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
 
-    # ← .env の値をここに移植（Secretは含めない）
+    # 旧 .env の値（Secret はここに書かない）
     env:
       TZ: "Asia/Tokyo"
       VOLUME_MULT: "1.5"
       VOL_QUANTILE: "0.80"
       MIN_TURNOVER_JPY: "0"
       VOL_COND_MODE: "OR"
-      FIRST_SEEN_BD: "2" # コメントはダメなので説明はここにだけ書く
-
-      # Secret（Slack）は repository secrets に登録済みのものを注入
+      FIRST_SEEN_BD: "2"
+      # Slack は Secrets から
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
+      # 時間ガード用（15:15 ± 20分だけ実行）
+      TARGET_HOUR_JST: "15"
+      TARGET_MINUTE_JST: "15"
+      WINDOW_MIN: "20"
+
     steps:
+      - name: Time gate (run only near 15:15 JST)
+        id: gate
+        run: |
+          now_h=$(TZ=Asia/Tokyo date +%H)
+          now_m=$(TZ=Asia/Tokyo date +%M)
+          now=$((10#$now_h*60 + 10#$now_m))
+          tgt=$((10#$TARGET_HOUR_JST*60 + 10#$TARGET_MINUTE_JST))
+          diff=$(( now>tgt ? now-tgt : tgt-now ))
+          if [ $diff -le $WINDOW_MIN ]; then
+            echo "run=true" >> $GITHUB_OUTPUT
+            echo "Within window: diff=${diff}min"
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+            echo "Outside window: diff=${diff}min"
+          fi
+
       - name: Checkout repository
+        if: steps.gate.outputs.run == 'true'
         uses: actions/checkout@v3
 
       - name: Set up Python
+        if: steps.gate.outputs.run == 'true'
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
       - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # --- notified_state.json を復元（前回の結果を引き継ぐ）---
+      # --- 前回の notified_state.json を復元 ---
       - name: Restore notified_state.json cache
+        if: steps.gate.outputs.run == 'true'
         id: cache-restore
         uses: actions/cache/restore@v4
         with:
@@ -50,16 +82,18 @@ jobs:
             notified_state-
 
       - name: Touch state if missing
+        if: steps.gate.outputs.run == 'true'
         run: |
           [ -f notified_state.json ] || echo '{}' > notified_state.json
 
       - name: Run script
+        if: steps.gate.outputs.run == 'true'
         run: |
           python watch_momentum_signals.py
 
-      # --- 実行後の notified_state.json を保存（次回に引き継ぐ）---
+      # --- 実行後 state を保存 ---
       - name: Save notified_state.json cache
-        if: always()
+        if: always() && steps.gate.outputs.run == 'true'
         uses: actions/cache/save@v4
         with:
           path: notified_state.json
