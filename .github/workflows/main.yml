@@ -3,11 +3,8 @@ name: Run watch_momentum_signals
 on:
   schedule:
     # JST -> UTC は -9時間
-    - cron: "5 6 * * 1-5"    # JST 15:05
-    - cron: "10 6 * * 1-5"   # JST 15:10
     - cron: "15 6 * * 1-5"   # JST 15:15（本命）
-    - cron: "20 6 * * 1-5"   # JST 15:20（予備）
-  workflow_dispatch: {}
+workflow_dispatch: {}
 
 permissions:
   contents: read
