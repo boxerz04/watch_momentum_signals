@@ -8,20 +8,14 @@ on:
     - cron: "50 5 * * 1-5"   # 05:50 UTC = 14:50 JST
     - cron: "55 5 * * 1-5"   # 05:55 UTC = 14:55 JST
     - cron: "0 6 * * 1-5"    # 06:00 UTC = 15:00 JST
-  workflow_dispatch: {}
+  workflow_dispatch: {}  # 手動実行ボタン
 
 permissions:
   contents: read
 
-# 並走防止（最初に走り出した1本だけが有効）
-concurrency:
-  group: momentum-chaser
-  cancel-in-progress: true
-
 jobs:
   run-script:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
 
     env:
       TZ: "Asia/Tokyo"
@@ -33,9 +27,11 @@ jobs:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
@@ -44,6 +40,14 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      # --- 手動実行時のみ Self-test を送る ---
+      - name: Send self-test ping (manual only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "[INFO] Manual run detected. Sending self-test ping..."
+          python watch_momentum_signals.py --self-test
+
+      # --- notified_state.json を復元 ---
       - name: Restore notified_state.json cache
         id: cache-restore
         uses: actions/cache/restore@v4
@@ -58,8 +62,10 @@ jobs:
           [ -f notified_state.json ] || echo '{}' > notified_state.json
 
       - name: Run script
-        run: python watch_momentum_signals.py
+        run: |
+          python watch_momentum_signals.py
 
+      # --- 実行後にキャッシュ保存 ---
       - name: Save notified_state.json cache
         if: always()
         uses: actions/cache/save@v4
