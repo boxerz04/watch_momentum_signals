@@ -2,35 +2,40 @@ name: Run watch_momentum_signals
 
 on:
   schedule:
-    # JST 15:15 = UTC 06:15（平日）
-    - cron: "15 6 * * 1-5"
-  workflow_dispatch: {}  # 手動実行ボタン
+    # 15:15(JST)を狙って30分前から4回保険発火（JST）
+    # 14:45, 14:50, 14:55, 15:00 JST  ← UTCに直すと↓
+    - cron: "45 5 * * 1-5"   # 05:45 UTC = 14:45 JST
+    - cron: "50 5 * * 1-5"   # 05:50 UTC = 14:50 JST
+    - cron: "55 5 * * 1-5"   # 05:55 UTC = 14:55 JST
+    - cron: "0 6 * * 1-5"    # 06:00 UTC = 15:00 JST
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
+# 並走防止（最初に走り出した1本だけが有効）
+concurrency:
+  group: momentum-chaser
+  cancel-in-progress: true
+
 jobs:
   run-script:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-    # ← .env の値をここに移植（Secretは含めない）
     env:
       TZ: "Asia/Tokyo"
       VOLUME_MULT: "1.5"
       VOL_QUANTILE: "0.80"
       MIN_TURNOVER_JPY: "0"
       VOL_COND_MODE: "OR"
-      FIRST_SEEN_BD: "2" # コメントはダメなので説明はここにだけ書く
-
-      # Secret（Slack）は repository secrets に登録済みのものを注入
+      FIRST_SEEN_BD: "2"
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
@@ -39,7 +44,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # --- notified_state.json を復元（前回の結果を引き継ぐ）---
       - name: Restore notified_state.json cache
         id: cache-restore
         uses: actions/cache/restore@v4
@@ -54,10 +58,8 @@ jobs:
           [ -f notified_state.json ] || echo '{}' > notified_state.json
 
       - name: Run script
-        run: |
-          python watch_momentum_signals.py
+        run: python watch_momentum_signals.py
 
-      # --- 実行後の notified_state.json を保存（次回に引き継ぐ）---
       - name: Save notified_state.json cache
         if: always()
         uses: actions/cache/save@v4
